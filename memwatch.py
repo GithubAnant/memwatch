@@ -164,9 +164,9 @@ PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..600&family=Geist+Mono:wght@400..600&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#fff;--bg2:#fafafa;--fg:#171717;--fg2:#666;--border:#eaeaea;--strong:#d4d4d4;
-  --seg1:#171717;--seg2:#666;--seg3:#a1a1a1;--seg4:#d4d4d4;--warn:#f5a623;--err:#e5484d;--ok:#45a557;--sk:#ededed}
+  --seg1:#2a78d6;--seg2:#eb6834;--seg3:#1baf7a;--seg4:#eda100;--warn:#f5a623;--err:#e5484d;--ok:#45a557;--sk:#ededed}
 @media (prefers-color-scheme:dark){:root{--bg:#0a0a0a;--bg2:#111;--fg:#ededed;--fg2:#a1a1a1;--border:#242424;--strong:#3a3a3a;
-  --seg1:#ededed;--seg2:#a1a1a1;--seg3:#666;--seg4:#333;--sk:#1f1f1f}}
+  --seg1:#3987e5;--seg2:#d95926;--seg3:#199e70;--seg4:#c98500;--sk:#1f1f1f}}
 *{box-sizing:border-box;margin:0}
 /* thin floating scrollbar: no track, thumb inset by a bg-colored border */
 ::-webkit-scrollbar{width:12px;height:12px;background:transparent}
@@ -203,7 +203,9 @@ h1{font-size:14px;font-weight:600}
 .kpi .v{font-size:24px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .kpi .s{color:var(--fg2);font-size:13px;font-variant-numeric:tabular-nums}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
-.bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--bg2);border:1px solid var(--border)}
+/* categorical slots 1-4 in fixed order (validated light+dark); 2px surface gap between segments */
+.bar{display:flex;gap:2px;height:10px;border-radius:5px;overflow:hidden;background:var(--bg2)}
+.bar span{min-width:0}
 .legend{display:flex;flex-wrap:wrap;gap:4px 20px;margin:10px 0 40px;font-size:13px;color:var(--fg2);font-variant-numeric:tabular-nums}
 .legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px}
 .tools{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
@@ -290,7 +292,7 @@ function render(){
     ['Pressure',`<span class="dot" style="background:${pc}"></span>${pl}`,p+'% available'],
   ].map(([l,v,x])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${x}</div></div>`).join('');
   const seg=[['App',s.app,'--seg1'],['Wired',s.wired,'--seg2'],['Compressed',s.compressed,'--seg3'],['Cached files',s.cached,'--seg4']];
-  $('bar').innerHTML=seg.map(([,v,c])=>`<span style="width:${v/s.total*100}%;background:var(${c})"></span>`).join('');
+  $('bar').innerHTML=seg.map(([l,v,c])=>`<span title="${l} ${fmt(v)}" style="width:${v/s.total*100}%;background:var(${c})"></span>`).join('');
   $('bar').setAttribute('aria-label',seg.map(([l,v])=>l+' '+fmt(v)).join(', '));
   $('legend').innerHTML=seg.map(([l,v,c])=>`<span><i style="background:var(${c})"></i>${l} ${fmt(v)}</span>`).join('')+`<span>Free ${fmt(s.free)}</span>`;
   const q=$('q').value.toLowerCase();
