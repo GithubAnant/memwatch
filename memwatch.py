@@ -48,6 +48,31 @@ function run(argv) {
 icon_lock = threading.Lock()
 icon_failed = set()
 
+# Size of each .app bundle on disk (du = allocated blocks, like Finder's "on disk"). Big apps take seconds,
+# so it's measured in the background and kept in a JSON cache keyed like the icons (path + mtime).
+DISK_CACHE = os.path.join(os.path.dirname(ICONS), "disk.json")
+disk_lock = threading.Lock()
+try:
+    with open(DISK_CACHE) as f:
+        disk_sizes = json.load(f)
+except (OSError, ValueError):
+    disk_sizes = {}
+
+
+def measure_disk(todo):  # {key: bundle}; one batch at a time
+    if not disk_lock.acquire(blocking=False):
+        return
+    try:
+        for k, b in todo.items():
+            out = sh("du", "-sk", os.path.realpath(b)).split()
+            disk_sizes[k] = int(out[0]) * 1024 if out and out[0].isdigit() else -1  # -1: couldn't read
+        os.makedirs(os.path.dirname(DISK_CACHE), exist_ok=True)
+        with open(DISK_CACHE + ".tmp", "w") as f:
+            json.dump(disk_sizes, f)
+        os.replace(DISK_CACHE + ".tmp", DISK_CACHE)
+    finally:
+        disk_lock.release()
+
 
 def icon_id(bundle):
     try:  # mtime in the key so an updated app gets its new icon
@@ -92,15 +117,22 @@ def snapshot():
         a["procs"].append({"pid": int(pid), "name": path.rsplit("/", 1)[-1], "mem": mem, "cmprs": cmprs})
 
     rows =[{"app": k, **v, "procs": sorted(v["procs"], key=lambda p: -p["mem"])} for k, v in apps.items()]
-    todo = {}
+    todo, disk_todo = {}, {}
     for r in rows:
         b = r.pop("bundle")
         i = icon_id(b) if b else None
         r["icon"] = i if i and os.path.exists(f"{ICONS}/{i}.png") else None
         if i and not r["icon"] and i not in icon_failed:
             todo[i] = b
-    if todo:  # icons show up on the next poll
+        d = disk_sizes.get(i) if i else None
+        r["disk"] = d if d is not None and d >= 0 else None
+        if i and d is None:
+            disk_todo[i] = b
+    # icons and disk sizes show up on a later poll
+    if todo:
         threading.Thread(target=fetch_icons, args=(todo,), daemon=True).start()
+    if disk_todo:
+        threading.Thread(target=measure_disk, args=(disk_todo,), daemon=True).start()
     return {"sys": sysmem(), "apps": sorted(rows, key=lambda r: -r["mem"])}
 
 
@@ -160,7 +192,7 @@ header{position:sticky;top:0;z-index:2;height:var(--tb);display:flex;justify-con
 .mb .kpis{margin:4px 0 12px;gap:12px 16px;grid-template-columns:1fr 1fr}
 .mb .kpi .v{font-size:20px}
 .mb .legend{margin-bottom:20px}
-.mb caption,.mb .tools .meta,.mb th:nth-child(2),.mb td:nth-child(2),.mb th:nth-child(4),.mb td:nth-child(4){display:none}
+.mb caption,.mb .tools .meta,.mb th:nth-child(2),.mb td:nth-child(2),.mb th:nth-child(4),.mb td:nth-child(4),.mb th:nth-child(6),.mb td:nth-child(6){display:none}
 .mb input{width:100%}
 .mb th,.mb td{padding-left:8px;padding-right:8px}
 .mb tr.proc td:first-child{padding-left:50px}
@@ -191,6 +223,7 @@ tr.app:hover td{background:var(--bg2)}
 tr.app:focus-visible{outline:2px solid var(--fg2);outline-offset:-2px}
 tr.proc td{color:var(--fg2);font-size:13px;border-bottom-color:transparent}
 tr.proc td:first-child{padding-left:54px}
+.dim{color:var(--fg2)}
 .pid{font-family:'Geist Mono',monospace;font-size:12px}
 .share{display:inline-block;width:80px;height:4px;background:var(--bg2);border-radius:2px;vertical-align:middle;margin-left:8px}
 .share b{display:block;height:100%;background:var(--fg);border-radius:2px}
@@ -223,7 +256,8 @@ tr.app:hover .chev{color:var(--fg)}
 <th class="n" data-k="n" title="Number of running processes for this app">Procs</th>
 <th class="n" data-k="mem" title="Physical footprint: RAM this app is using right now, including its compressed part. Same number as Activity Monitor's Memory column.">Memory</th>
 <th class="n" data-k="cmprs" title="Part of Memory that macOS has compressed in RAM or moved to swap on disk">Compressed</th>
-<th class="n" data-k="mem" id="share" title="Memory as a share of your installed RAM">Memory % of RAM</th></tr></thead>
+<th class="n" data-k="mem" id="share" title="Memory as a share of your installed RAM">Memory % of RAM</th>
+<th class="n" data-k="disk" title="Space the app itself takes on your drive (its .app bundle). Doesn't include its documents, caches or other data.">On disk</th></tr></thead>
 <tbody id="rows"></tbody></table></div>
 </main><script>
 const $=id=>document.getElementById(id), open=new Set();
@@ -243,7 +277,7 @@ const icon=a=>a.icon?`<img class="ico" src="/icon/${a.icon}.png" alt="">`:`<span
 const sk=(w,h=12)=>`<span class="sk" style="width:${w}px;height:${h}px"></span>`;
 $('kpis').innerHTML=[72,64,80,60].map(w=>`<div class="kpi"><div class="l">${sk(w)}</div><div class="v">${sk(w+56,22)}</div><div class="s">${sk(w-8)}</div></div>`).join('');
 $('legend').innerHTML=[64,72,96,92,64].map(w=>`<span>${sk(w)}</span>`).join('');
-$('rows').innerHTML=[128,104,88,136,64,112,96,72,120,80].map((w,i)=>`<tr style="opacity:${1-i*.08}"><td><span class="chev"></span><span class="sk ico"></span>${sk(w)}</td><td class="n">${sk(20)}</td><td class="n">${sk(56)}</td><td class="n">${sk(52)}</td><td class="n">${sk(36)}<span class="share">${sk(80,4)}</span></td></tr>`).join('');
+$('rows').innerHTML=[128,104,88,136,64,112,96,72,120,80].map((w,i)=>`<tr style="opacity:${1-i*.08}"><td><span class="chev"></span><span class="sk ico"></span>${sk(w)}</td><td class="n">${sk(20)}</td><td class="n">${sk(56)}</td><td class="n">${sk(52)}</td><td class="n">${sk(36)}<span class="share">${sk(80,4)}</span></td><td class="n">${sk(48)}</td></tr>`).join('');
 function render(){
   if(!data) return;
   document.querySelector('main').removeAttribute('aria-busy'); $('bar').classList.remove('loading');
@@ -262,13 +296,13 @@ function render(){
   const q=$('q').value.toLowerCase();
   const rows=data.apps.filter(a=>!q||a.app.toLowerCase().includes(q)||a.procs.some(x=>x.name.toLowerCase().includes(q)))
     .map(a=>({...a,n:a.procs.length}))
-    .sort((a,b)=>{const x=a[sortK],y=b[sortK];return (typeof x=='string'?x.localeCompare(y):x-y)*(asc?1:-1)});
+    .sort((a,b)=>{const x=a[sortK]??-1,y=b[sortK]??-1;return (typeof x=='string'?x.localeCompare(y):x-y)*(asc?1:-1)});
   const max=Math.max(...data.apps.map(a=>a.mem));
   const focused=document.activeElement?.closest?.('tr.app')?.dataset.a;
   $('rows').innerHTML=rows.slice(0,200).map(a=>{
     const o=open.has(a.app), pct=a.mem/s.total*100;
-    let h=`<tr class="app" data-a="${esc(a.app)}"${a.n>1?` tabindex="0" aria-expanded="${o}"`:''}><td><span class="chev">${a.n>1?CHEV:''}</span>${icon(a)}${esc(a.app)}</td><td class="n">${a.n}</td><td class="n">${fmt(a.mem)}</td><td class="n">${fmt(a.cmprs)}</td><td class="n">${pct.toFixed(1)}%<span class="share"><b style="width:${a.mem/max*100}%"></b></span></td></tr>`;
-    if(o&&a.n>1) h+=a.procs.map(x=>`<tr class="proc"><td>${esc(x.name)} <span class="pid">${x.pid}</span></td><td></td><td class="n">${fmt(x.mem)}</td><td class="n">${fmt(x.cmprs)}</td><td class="n">${(x.mem/s.total*100).toFixed(1)}%</td></tr>`).join('');
+    let h=`<tr class="app" data-a="${esc(a.app)}"${a.n>1?` tabindex="0" aria-expanded="${o}"`:''}><td><span class="chev">${a.n>1?CHEV:''}</span>${icon(a)}${esc(a.app)}</td><td class="n">${a.n}</td><td class="n">${fmt(a.mem)}</td><td class="n">${fmt(a.cmprs)}</td><td class="n">${pct.toFixed(1)}%<span class="share"><b style="width:${a.mem/max*100}%"></b></span></td><td class="n">${a.disk!=null?fmt(a.disk):`<span class="dim" title="${a.icon?'Measuring…':'Not an app bundle'}">—</span>`}</td></tr>`;
+    if(o&&a.n>1) h+=a.procs.map(x=>`<tr class="proc"><td>${esc(x.name)} <span class="pid">${x.pid}</span></td><td></td><td class="n">${fmt(x.mem)}</td><td class="n">${fmt(x.cmprs)}</td><td class="n">${(x.mem/s.total*100).toFixed(1)}%</td><td></td></tr>`).join('');
     return h}).join('');
   // rows are rebuilt every refresh; put keyboard focus back where it was
   if(focused!=null) [...$('rows').querySelectorAll('tr.app')].find(r=>r.dataset.a===focused)?.focus({preventScroll:true});

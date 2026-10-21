@@ -22,6 +22,9 @@ one for Slack, one for whatever Electron app you forgot was open, with the real 
   processes inside it.
 - **Compressed** per app: the part macOS has squeezed in RAM or pushed out to swap.
   macOS doesn't report swap per app, so this is the closest you can get.
+- **On disk**: how much space the app itself takes on your drive. Handy when you're
+  deciding what to uninstall. It's measured in the background the first time and cached,
+  so big apps fill in after a few seconds.
 
 Hover any column header for a short explanation of what it measures.
 
@@ -81,7 +84,13 @@ Both light and dark mode follow your system setting.
 
 - "Memory" is the physical footprint, the same number Activity Monitor shows. It
   includes the compressed part, which is why the percentages can add up to more than 100%.
+- "On disk" is just the `.app` bundle. An app's documents, caches and other data live
+  elsewhere in `~/Library` and aren't counted.
 - The app is signed ad-hoc on your own machine by `build.sh`, so there's no
   Gatekeeper prompt. If you share the built `.app` with someone else, they'll need to
   right-click → Open the first time.
 - Logs go to `~/Library/Logs/Memwatch.log` if something goes wrong.
+
+## License
+
+MIT
