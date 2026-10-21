@@ -251,12 +251,12 @@ tr.app:hover .chev{color:var(--fg)}
 <div class="legend" id="legend"></div>
 <div class="tools"><input id="q" type="search" placeholder="Filter apps" aria-label="Filter apps">
 <span class="meta" id="hint">click a row for processes</span></div>
-<div class="wrap"><table><caption>Memory by app. Memory = physical footprint (as in Activity Monitor). Compressed = part of it squeezed in RAM or swapped to disk.</caption>
+<div class="wrap"><table><caption>RAM by app. RAM = physical footprint (Activity Monitor calls it Memory). Compressed = part of it squeezed in RAM or swapped to disk. On disk = size of the app itself on your drive.</caption>
 <thead><tr><th data-k="app" title="App name. Helper processes are counted under their parent app.">App</th>
 <th class="n" data-k="n" title="Number of running processes for this app">Procs</th>
-<th class="n" data-k="mem" title="Physical footprint: RAM this app is using right now, including its compressed part. Same number as Activity Monitor's Memory column.">Memory</th>
-<th class="n" data-k="cmprs" title="Part of Memory that macOS has compressed in RAM or moved to swap on disk">Compressed</th>
-<th class="n" data-k="mem" id="share" title="Memory as a share of your installed RAM">Memory % of RAM</th>
+<th class="n" data-k="mem" title="Physical footprint: RAM this app is using right now, including its compressed part. Same number as Activity Monitor's Memory column.">RAM</th>
+<th class="n" data-k="cmprs" title="Part of the RAM number that macOS has compressed in RAM or moved to swap on disk">Compressed</th>
+<th class="n" data-k="mem" id="share" title="RAM use as a share of your installed RAM">RAM %</th>
 <th class="n" data-k="disk" title="Space the app itself takes on your drive (its .app bundle). Doesn't include its documents, caches or other data.">On disk</th></tr></thead>
 <tbody id="rows"></tbody></table></div>
 </main><script>
@@ -284,7 +284,7 @@ function render(){
   const s=data.sys, used=s.app+s.wired+s.compressed;
   const p=s.available_pct, [pc,pl]=p<15?['var(--err)','High']:p<35?['var(--warn)','Elevated']:['var(--ok)','Normal'];
   $('kpis').innerHTML=[
-    ['Memory used',fmt(used),'of '+fmt(s.total)],
+    ['RAM used',fmt(used),'of '+fmt(s.total)],
     ['Swap used',fmt(s.swap_used),'of '+fmt(s.swap_total)],
     ['Compressed',fmt(s.compressed),'in RAM'],
     ['Pressure',`<span class="dot" style="background:${pc}"></span>${pl}`,p+'% available'],
@@ -308,7 +308,7 @@ function render(){
   if(focused!=null) [...$('rows').querySelectorAll('tr.app')].find(r=>r.dataset.a===focused)?.focus({preventScroll:true});
   document.querySelectorAll('th').forEach(th=>th.dataset.k===sortK&&th.id!=='share'
     ? th.setAttribute('aria-sort',asc?'ascending':'descending') : th.removeAttribute('aria-sort'));
-  $('share').textContent=`${R.classList.contains('mb')?'':'Memory '}% of ${fmt(s.total).replace('.00','')}`;
+  $('share').textContent=`${R.classList.contains('mb')?'':'RAM '}% of ${fmt(s.total).replace('.00','')}`;
 }
 function toggle(r){
   const a=r.dataset.a; open.has(a)?open.delete(a):open.add(a);

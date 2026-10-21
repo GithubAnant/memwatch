@@ -15,10 +15,10 @@ one for Slack, one for whatever Electron app you forgot was open, with the real 
 
 ## What it shows
 
-- **Memory used, swap, compressed memory and memory pressure** at the top. The
+- **RAM used, swap, compressed memory and memory pressure** at the top. The
   numbers match Activity Monitor.
 - **A breakdown bar**: app memory, wired, compressed, cached files, free.
-- **Every app, sorted by memory**, with its real icon. Click a row to see the
+- **Every app, sorted by RAM**, with its real icon. Click a row to see the
   processes inside it.
 - **Compressed** per app: the part macOS has squeezed in RAM or pushed out to swap.
   macOS doesn't report swap per app, so this is the closest you can get.
@@ -31,7 +31,7 @@ Hover any column header for a short explanation of what it measures.
 ## Menu bar mode
 
 Turn it on in Settings (<kbd>⌘</kbd> <kbd>,</kbd>) and Memwatch moves out of the Dock and into
-the menu bar. It shows your memory used next to the icon, and clicking it opens a
+the menu bar. It shows your RAM used next to the icon, and clicking it opens a
 compact version of the window.
 
 <img src="screenshots/menubar.png" width="420" alt="Menu bar popover">
@@ -82,7 +82,7 @@ Both light and dark mode follow your system setting.
 
 ## Good to know
 
-- "Memory" is the physical footprint, the same number Activity Monitor shows. It
+- "RAM" is the physical footprint, the number Activity Monitor calls "Memory". It
   includes the compressed part, which is why the percentages can add up to more than 100%.
 - "On disk" is just the `.app` bundle. An app's documents, caches and other data live
   elsewhere in `~/Library` and aren't counted.
