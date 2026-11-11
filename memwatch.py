@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """memwatch: per-app memory on macOS. Run, open http://localhost:8799 (PORT env to change)"""
-import hashlib, json, os, re, subprocess, sys, threading
+import hashlib, json, os, re, shutil, subprocess, sys, threading, time
+from concurrent.futures import ThreadPoolExecutor
 from collections import defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 PORT = int(os.environ.get("PORT", 8799))
 UNITS = {"B": 1, "K": 1 << 10, "M": 1 << 20, "G": 1 << 30, "T": 1 << 40}
@@ -157,6 +159,80 @@ def sysmem():  # cheap (no top): also serves the menu bar number via /sys
     return s
 
 
+# Disk breakdown: sizes of one folder's children. Files are stat'd right away; each subfolder gets its own
+# `du -skx` (allocated size, stays on this volume) on a small pool, so rows fill in as they finish. Only the folder
+# being looked at is scanned: opening another one cancels the old scan and kills its du processes.
+DATA = "/System/Volumes/Data"  # the "/" users mean: where everything that isn't macOS itself lives
+scans, live, scan_lock = {}, set(), threading.Lock()
+pool = ThreadPoolExecutor(4)
+
+
+def du(scan, e):
+    if scan["cancel"]:
+        return
+    p = subprocess.Popen(["du", "-skx", e["path"]], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    with scan_lock:
+        live.add(p)
+    out, err = p.communicate()
+    with scan_lock:
+        live.discard(p)
+    if scan["cancel"]:
+        return
+    n = out.split()[0] if out.split() else ""
+    blocked = "not permitted" in err or "Permission denied" in err  # du still sums what it could read
+    if n.isdigit() and not (blocked and n == "0"):
+        e["size"], e["partial"] = int(n) * 1024, blocked
+    else:
+        e["denied"] = True
+    with scan_lock:
+        scan["left"] -= 1
+
+
+def start_scan(path):
+    with scan_lock:
+        for k, sc in list(scans.items()):
+            if k != path:
+                sc["cancel"] = True
+                del scans[k]
+        for p in list(live):
+            p.kill()
+        scan = scans[path] = {"entries": [], "left": 0, "cancel": False, "error": None, "at": time.time()}
+    try:
+        it = list(os.scandir(path))
+    except OSError as e:
+        scan["error"] = e.strerror
+        return scan
+    dirs = []
+    for d in it:
+        e = {"name": d.name, "path": d.path, "dir": False, "size": None}
+        try:
+            if d.is_dir(follow_symlinks=False):
+                e["dir"] = True
+                dirs.append(e)
+            else:
+                e["size"] = d.stat(follow_symlinks=False).st_blocks * 512
+        except OSError:
+            e["denied"] = True
+        scan["entries"].append(e)
+    scan["left"] = len(dirs)
+    for e in dirs:
+        pool.submit(du, scan, e)
+    return scan
+
+
+def disk(path, rescan=False):
+    path = os.path.realpath(os.path.expanduser(path or "~"))
+    if not os.path.isdir(path):
+        raise FileNotFoundError(path)
+    scan = scans.get(path)
+    if rescan or scan is None:
+        scan = start_scan(path)
+    u = shutil.disk_usage(DATA)
+    return {"path": path, "home": os.path.expanduser("~"), "data": DATA, "parent": os.path.dirname(path) if path != "/" else None,
+            "total": u.total, "used": u.total - u.free, "free": u.free, "left": scan["left"], "error": scan["error"],
+            "entries": sorted(scan["entries"], key=lambda e: -(e["size"] or 0))[:300], "count": len(scan["entries"])}
+
+
 PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Memwatch</title>
@@ -267,11 +343,37 @@ tr:hover .kb,.kb:focus-visible,.kb[aria-expanded=true]{opacity:1}
 #km button:hover{background:var(--bg2)}
 #km button.danger{background:var(--err);border-color:var(--err);color:#fff}
 #km button:focus-visible{outline:2px solid var(--fg2);outline-offset:1px}
+.tabsrow{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px}
+.seg{display:inline-flex;padding:2px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);gap:2px}
+.seg button{font:13px Geist,system-ui,sans-serif;color:var(--fg2);background:none;border:0;border-radius:6px;padding:4px 14px;cursor:pointer}
+.seg button[aria-selected=true],.seg button[aria-pressed=true]{background:var(--bg);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.seg button:hover{color:var(--fg)}
+.seg button:focus-visible,.crumbs button:focus-visible,.btn:focus-visible{outline:2px solid var(--fg2);outline-offset:1px}
+[hidden]{display:none!important}
+.crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:2px;font-size:13px;min-width:0}
+.crumbs button{font:inherit;color:var(--fg2);background:none;border:0;border-radius:5px;padding:3px 6px;cursor:pointer;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crumbs button:hover{color:var(--fg);background:var(--bg2)}
+.crumbs button[aria-current]{color:var(--fg);font-weight:500}
+.crumbs span{color:var(--strong)}
+.btn{font:13px Geist,system-ui,sans-serif;color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;margin-left:10px}
+.btn:hover{background:var(--bg2)}
+tr.dir{cursor:pointer}
+tr.dir:hover td,tr.file:hover td{background:var(--bg2)}
+tr.dir:focus-visible{outline:2px solid var(--fg2);outline-offset:-2px}
+.gl{display:inline-flex;width:16px;margin-right:10px;color:var(--fg2);vertical-align:-2px}
+.rv{font:12px Geist,system-ui,sans-serif;color:var(--fg2);background:none;border:0;border-radius:5px;padding:3px 6px;cursor:pointer;opacity:0;white-space:nowrap}
+tr:hover .rv,.rv:focus-visible{opacity:1}
+.rv:hover{color:var(--fg);background:var(--bg)}
+.note{color:var(--fg2);font-size:13px;margin-top:16px;max-width:720px}
+.mb #dtab :is(th,td):nth-child(3){display:none}
 @media (max-width:640px){.share{display:none}}
 </style></head><body>
 <header><h1>Memwatch</h1><div class="right"><span class="meta" id="ts">sampling…</span>
 <nav class="native"><button data-act="settings">Settings</button><button data-act="quit">Quit</button></nav></div></header>
 <main aria-busy="true">
+<div class="tabsrow"><nav class="seg" role="tablist" aria-label="View" id="tabs"><button role="tab" aria-selected="true" data-v="ram">RAM</button><button role="tab" aria-selected="false" data-v="disk">Disk</button></nav>
+<nav class="seg" id="roots" aria-label="Start from" hidden><button data-r="home">Home</button><button data-r="apps">Applications</button><button data-r="data">Whole disk</button></nav></div>
+<div id="ramv">
 <section class="kpis" id="kpis"></section>
 <div class="bar loading" id="bar" role="img" aria-label="Loading"></div>
 <div class="legend" id="legend"></div>
@@ -285,6 +387,18 @@ tr:hover .kb,.kb:focus-visible,.kb[aria-expanded=true]{opacity:1}
 <th class="n" data-k="mem" id="share" title="RAM use as a share of your installed RAM">RAM %</th>
 <th class="n" data-k="disk" title="Space the app itself takes on your drive (its .app bundle). Doesn't include its documents, caches or other data.">On disk</th><th class="act" aria-label="Quit"></th></tr></thead>
 <tbody id="rows"></tbody></table></div>
+</div>
+<div id="diskv" hidden>
+<section class="kpis" id="dkpis"></section>
+<div class="bar" id="dbar" role="img"></div>
+<div class="legend" id="dlegend"></div>
+<div class="tools"><nav class="crumbs" id="crumbs" aria-label="Folder path"></nav>
+<div class="right"><span class="meta" id="dstat" aria-live="polite"></span><button class="btn" id="rescan">Rescan</button></div></div>
+<div class="wrap"><table id="dtab"><caption>What's using space in this folder, biggest first. Click a folder to look inside.</caption>
+<thead><tr><th>Name</th><th class="n" title="Space it takes on your drive">Size</th><th class="n" title="Share of everything in this folder">Share</th><th class="act" aria-label="Show in Finder"></th></tr></thead>
+<tbody id="drows"></tbody></table></div>
+<p class="note" id="dnote"></p>
+</div>
 </main>
 <div id="km" role="dialog" aria-labelledby="kmt" hidden><strong id="kmt"></strong><p id="kmp"></p>
 <div class="row"><button data-k="cancel">Cancel</button><button data-k="force">Force quit</button><button class="danger" data-k="quit">Quit</button></div></div>
@@ -384,24 +498,91 @@ window.killDone=(ok,denied,skipped)=>{
 document.querySelector('thead').onclick=e=>{const k=e.target.dataset.k; if(!k) return; asc=k===sortK?!asc:k==='app'; sortK=k; render()};
 $('q').oninput=render;
 async function tick(){
+  if(view!=='ram') return;
   try{const r=await fetch('/api'), j=await r.json(); if(!r.ok) throw j.error;
     data=j; if(Date.now()>tsHold) $('ts').textContent='updated '+new Date().toLocaleTimeString(); render()}
   catch(e){$('ts').textContent=typeof e=='string'?'sample failed, retrying':'server not reachable'}
   timer=setTimeout(tick,every*1000);
 }
-let timer; tick();
-window.refreshNow=()=>{clearTimeout(timer); tick()};  // native calls this when the popover opens
+let timer, view='ram';
+window.refreshNow=()=>{clearTimeout(timer); tick()};
+
+// ---- Disk: one folder at a time; the server measures its subfolders in the background, we poll until done
+const FOLDER='<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.75 4.25c0-.69.56-1.25 1.25-1.25h3l1.5 1.5H13c.69 0 1.25.56 1.25 1.25v6.25c0 .69-.56 1.25-1.25 1.25H3c-.69 0-1.25-.56-1.25-1.25z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+const FILE='<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.75h5l3.25 3.25v9.25H4z M9 1.75V5h3.25" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+let dpath='', dtimer, dseq=0, dd=null;
+async function loadDisk(p,rescan){
+  clearTimeout(dtimer); const seq=++dseq;
+  if(p!==dpath){ dpath=p; dd=null; $('drows').innerHTML=[140,110,90,150,70,120].map((w,i)=>`<tr style="opacity:${1-i*.12}"><td><span class="gl"></span>${sk(w)}</td><td class="n">${sk(52)}</td><td class="n">${sk(36)}<span class="share">${sk(80,4)}</span></td><td></td></tr>`).join('') }
+  try{
+    const r=await fetch('/disk?'+new URLSearchParams(rescan?{path:p,rescan:1}:{path:p})), j=await r.json();
+    if(seq!==dseq) return;  // user moved on
+    if(!r.ok) throw 0;
+    dd=j; dpath=j.path; renderDisk();
+    if(j.left>0&&view==='disk') dtimer=setTimeout(()=>loadDisk(dpath),800);
+  }catch(e){ if(seq===dseq){ $('dstat').textContent="couldn't open this folder"; $('drows').innerHTML='' } }
+}
+function renderDisk(){
+  const d=dd, sum=d.entries.reduce((a,e)=>a+(e.size||0),0), max=Math.max(1,...d.entries.map(e=>e.size||0));
+  const rest=Math.max(0,d.used-sum);
+  $('dkpis').innerHTML=[['Disk used',fmt(d.used),'of '+fmt(d.total)],['Free',fmt(d.free),(d.free/d.total*100).toFixed(0)+'% of the disk'],
+    ['This folder',(d.left?'≥ ':'')+fmt(sum),`${d.count} item${d.count==1?'':'s'}`]]
+    .map(([l,v,x])=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${x}</div></div>`).join('');
+  const seg=[['This folder',sum,'--seg1'],['Everything else',rest,'--seg2']];
+  $('dbar').innerHTML=seg.map(([l,v,c])=>`<span title="${l} ${fmt(v)}" style="width:${v/d.total*100}%;background:var(${c})"></span>`).join('');
+  $('dbar').setAttribute('aria-label',seg.map(([l,v])=>l+' '+fmt(v)).join(', ')+', free '+fmt(d.free));
+  $('dlegend').innerHTML=seg.map(([l,v,c])=>`<span><i style="background:var(${c})"></i>${l} ${fmt(v)}</span>`).join('')+`<span>Free ${fmt(d.free)}</span>`;
+  // breadcrumb from the nearest root (home, whole disk, or /)
+  const root=d.path.startsWith(d.home)?[d.home,'Home']:d.path.startsWith(d.data)?[d.data,'Whole disk']:['/','/'];
+  const parts=d.path.slice(root[0].length).split('/').filter(Boolean);
+  let acc=root[0];
+  $('crumbs').innerHTML=[`<button data-p="${esc(root[0])}"${parts.length?'':' aria-current="page"'}>${root[1]}</button>`,...parts.map((x,i)=>{acc+=(acc.endsWith('/')?'':'/')+x;
+    return `${i||root[0]!=='/'?'<span aria-hidden="true">/</span>':''}<button data-p="${esc(acc)}"${i==parts.length-1?' aria-current="page"':''}>${esc(x)}</button>`})].join('');
+  $('dstat').textContent=d.error?`can't open: ${d.error}`:d.left?`measuring, ${d.left} folder${d.left==1?'':'s'} left…`:'done';
+  const tip='No access. Give Memwatch Full Disk Access (System Settings › Privacy & Security) to measure it.';
+  $('drows').innerHTML=d.entries.map(e=>{
+    const size=e.denied?`<span class="dim" title="${tip}">no access</span>`:e.size==null?sk(52):fmt(e.size)+(e.partial?`<span class="dim" title="Some folders inside couldn't be read, so it's at least this much">+</span>`:'');
+    const pct=e.size&&sum?e.size/sum*100:0;
+    return `<tr class="${e.dir?'dir':'file'}"${e.dir?` tabindex="0" data-p="${esc(e.path)}"`:''}><td><span class="gl">${e.dir?FOLDER:FILE}</span>${esc(e.name)}</td><td class="n">${size}</td><td class="n">${e.size!=null?pct.toFixed(1)+'%':''}<span class="share"><b style="width:${(e.size||0)/max*100}%"></b></span></td><td class="act">${native?`<button class="rv" data-rv="${esc(e.path)}">Show</button>`:''}</td></tr>`}).join('')
+    ||`<tr><td colspan="4" class="dim">${d.error?'':'Empty folder'}</td></tr>`;
+  const notes=[];
+  if(d.entries.some(e=>e.denied||e.partial)) notes.push('Some folders are protected by macOS. To measure them, add Memwatch under System Settings › Privacy & Security › Full Disk Access.');
+  if(d.path===d.data&&!d.left&&rest>(1<<30)) notes.push(`${fmt(rest)} of “Disk used” isn't in these folders: that's macOS itself, local Time Machine snapshots and purgeable space.`);
+  $('dnote').textContent=notes.join(' ');
+}
+$('drows').onclick=e=>{const b=e.target.closest('.rv'); if(b) return native?.postMessage({action:'reveal',path:b.dataset.rv}); const r=e.target.closest('tr.dir'); if(r) loadDisk(r.dataset.p)};
+$('drows').onkeydown=e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('tr.dir')){e.preventDefault(); loadDisk(e.target.dataset.p)}};
+$('crumbs').onclick=e=>{const b=e.target.closest('button'); if(b&&!b.hasAttribute('aria-current')) loadDisk(b.dataset.p)};
+$('rescan').onclick=()=>loadDisk(dpath,true);
+$('roots').onclick=e=>{const r=e.target.dataset.r; if(r) loadDisk(r==='home'?dd?.home||'':r==='apps'?'/Applications':dd?.data||'/System/Volumes/Data')};
+function setView(v){
+  view=v; document.querySelectorAll('#tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.v===v));
+  $('ramv').hidden=v!=='ram'; $('diskv').hidden=$('roots').hidden=v!=='disk';
+  history.replaceState(null,'',v==='disk'?'#disk':location.pathname+location.search);
+  if(v==='disk'){ clearTimeout(timer); $('ts').textContent=''; loadDisk(dpath) } else { clearTimeout(dtimer); refreshNow() }  // top only runs on the RAM view
+}
+$('tabs').onclick=e=>{const v=e.target.dataset.v; if(v) setView(v)};
+$('tabs').onkeydown=e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){const v=view==='ram'?'disk':'ram'; setView(v); $('tabs').querySelector(`[data-v=${v}]`).focus()}};
+location.hash==='#disk'?setView('disk'):tick();  // native calls this when the popover opens
 </script></body></html>"""
 
 
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
         code, cache = 200, "no-store"
+        # only answer pages addressed to this machine by name: stops DNS-rebinding sites reading file listings
+        if self.headers.get("Host", "").rsplit(":", 1)[0] not in ("127.0.0.1", "localhost"):
+            self.send_error(403)
+            return
         try:
+            url = urlparse(self.path)
             icon = re.fullmatch(r"/icon/([0-9a-f]{16})\.png", self.path)  # strict id: no path traversal
             if icon:
                 with open(f"{ICONS}/{icon[1]}.png", "rb") as f:
                     body, ctype, cache = f.read(), "image/png", "max-age=31536000, immutable"
+            elif url.path == "/disk":
+                q = parse_qs(url.query)
+                body, ctype = json.dumps(disk(q.get("path", [""])[0], "rescan" in q)).encode(), "application/json; charset=utf-8"
             elif self.path in ("/api", "/sys"):
                 body, ctype = json.dumps(snapshot() if self.path == "/api" else sysmem()).encode(), "application/json; charset=utf-8"
             else:
@@ -425,6 +606,15 @@ if __name__ == "__main__":
         assert size("3921M") == 3921 << 20 and size("12K+") == 12 << 10 and size("1.5G") == 3 << 29
         assert app_name("/Applications/Brave Browser.app/Contents/Frameworks/x/Brave Browser Helper.app/Contents/MacOS/h") == "Brave Browser"
         assert app_name("/usr/libexec/logd") == "logd"
+        import tempfile
+        with tempfile.TemporaryDirectory() as t:
+            os.makedirs(f"{t}/big/sub"); os.makedirs(f"{t}/empty")
+            open(f"{t}/big/sub/f", "wb").write(b"x" * (1 << 20)); open(f"{t}/small", "wb").write(b"x" * 10)
+            d = disk(t)
+            while d["left"]:
+                time.sleep(0.05); d = disk(t)
+            names = [e["name"] for e in d["entries"]]
+            assert names[0] == "big" and d["entries"][0]["size"] >= 1 << 20 and set(names) == {"big", "empty", "small"}, d
         s = snapshot()
         assert s["apps"] and s["sys"]["total"] > 0
         print("ok", len(s["apps"]), "apps; top:", [(a["app"], a["mem"] >> 20) for a in s["apps"][:5]])
@@ -435,7 +625,7 @@ if __name__ == "__main__":
         if app:
             # parent app reads this line for the port; stdin EOF = app gone (even if it crashed) -> exit
             print(f"PORT {srv.server_address[1]}", flush=True)
-            threading.Thread(target=lambda: (sys.stdin.read(), os._exit(0)), daemon=True).start()
+            threading.Thread(target=lambda: (sys.stdin.read(), [p.kill() for p in list(live)], os._exit(0)), daemon=True).start()
         else:
             print(f"memwatch on http://localhost:{PORT}")
         srv.serve_forever()

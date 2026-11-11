@@ -13,5 +13,10 @@
 	<key>LSMinimumSystemVersion</key><string>13.0</string>
 	<key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
 	<key>NSHighResolutionCapable</key><true/>
+	<key>NSDesktopFolderUsageDescription</key><string>Memwatch measures how much space your Desktop folder takes.</string>
+	<key>NSDocumentsFolderUsageDescription</key><string>Memwatch measures how much space your Documents folder takes.</string>
+	<key>NSDownloadsFolderUsageDescription</key><string>Memwatch measures how much space your Downloads folder takes.</string>
+	<key>NSRemovableVolumesUsageDescription</key><string>Memwatch measures how much space folders on this drive take.</string>
+	<key>NSNetworkVolumesUsageDescription</key><string>Memwatch measures how much space folders on this drive take.</string>
 </dict>
 </plist>

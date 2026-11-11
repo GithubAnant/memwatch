@@ -32,6 +32,19 @@ one for Slack, one for whatever Electron app you forgot was open, with the real 
 
 Hover any column header for a short explanation of what it measures.
 
+## Disk
+
+Switch to the **Disk** tab to see what's filling up your drive. It starts in your home
+folder and lists everything in it, biggest first. Click a folder to look inside, use the
+path at the top to go back up, or jump to Applications or the whole disk. Hidden folders
+like `.cache` and `.npm` are included, since they're often the culprits.
+
+Folders are measured in the background, so sizes fill in as they're counted. Big
+folders like `~/Library` can take a minute. Some folders are protected by macOS. Memwatch
+shows those as "no access" instead of guessing. If you want them counted, add Memwatch under
+System Settings › Privacy & Security › Full Disk Access. Click **Show** on any row to find
+it in Finder. Memwatch never deletes anything, so you stay in charge of what goes.
+
 ## Menu bar mode
 
 Flip the **Menu bar** switch in the bottom-left corner (or use Settings, <kbd>⌘</kbd> <kbd>,</kbd>) and Memwatch moves out of the Dock and into
