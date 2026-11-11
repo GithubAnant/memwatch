@@ -42,7 +42,9 @@ like `.cache` and `.npm` are included, since they're often the culprits.
 Folders are measured in the background, so sizes fill in as they're counted. Big
 folders like `~/Library` can take a minute. Some folders are protected by macOS. Memwatch
 shows those as "no access" instead of guessing. If you want them counted, add Memwatch under
-System Settings › Privacy & Security › Full Disk Access. Click **Show** on any row to find
+System Settings › Privacy & Security › Full Disk Access. Results are cached, so going back to a folder or reopening the app is instant. A folder
+is measured again when something is added to or removed from it directly, or when you
+click **Rescan**. Click **Show** on any row to find
 it in Finder. Memwatch never deletes anything, so you stay in charge of what goes.
 
 ## Menu bar mode

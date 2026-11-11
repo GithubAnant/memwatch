@@ -164,6 +164,25 @@ def sysmem():  # cheap (no top): also serves the menu bar number via /sys
 # being looked at is scanned: opening another one cancels the old scan and kills its du processes.
 DATA = "/System/Volumes/Data"  # the "/" users mean: where everything that isn't macOS itself lives
 scans, live, scan_lock = {}, set(), threading.Lock()
+# Finished scans are kept (in memory and in a JSON file) so going back to a folder, or reopening the app, is
+# instant. A folder whose own listing changed since (something added/removed directly in it) is rescanned.
+DIRS_CACHE = os.path.join(os.path.dirname(ICONS), "dirs.json")
+try:
+    with open(DIRS_CACHE) as f:
+        scans.update({k: {**v, "left": 0, "cancel": False, "error": None} for k, v in json.load(f).items()})
+except (OSError, ValueError, AttributeError):
+    pass
+
+
+def save_scans():  # called with scan_lock held; keeps the 300 most recent folders
+    done = sorted(((k, v) for k, v in scans.items() if not v["left"] and not v["error"]), key=lambda kv: -kv[1]["at"])[:300]
+    try:
+        os.makedirs(os.path.dirname(DIRS_CACHE), exist_ok=True)
+        with open(DIRS_CACHE + ".tmp", "w") as f:
+            json.dump({k: {"entries": v["entries"], "at": v["at"]} for k, v in done}, f)
+        os.replace(DIRS_CACHE + ".tmp", DIRS_CACHE)
+    except OSError:
+        pass
 pool = ThreadPoolExecutor(4)
 
 
@@ -186,12 +205,15 @@ def du(scan, e):
         e["denied"] = True
     with scan_lock:
         scan["left"] -= 1
+        if not scan["left"]:
+            scan["at"] = time.time()
+            save_scans()
 
 
 def start_scan(path):
     with scan_lock:
         for k, sc in list(scans.items()):
-            if k != path:
+            if k != path and sc["left"]:  # unfinished scans elsewhere are dropped; finished ones stay cached
                 sc["cancel"] = True
                 del scans[k]
         for p in list(live):
@@ -215,6 +237,9 @@ def start_scan(path):
             e["denied"] = True
         scan["entries"].append(e)
     scan["left"] = len(dirs)
+    if not dirs:
+        with scan_lock:
+            save_scans()
     for e in dirs:
         pool.submit(du, scan, e)
     return scan
@@ -225,11 +250,15 @@ def disk(path, rescan=False):
     if not os.path.isdir(path):
         raise FileNotFoundError(path)
     scan = scans.get(path)
-    if rescan or scan is None:
+    try:
+        stale = scan is not None and not scan["left"] and os.stat(path).st_mtime > scan["at"]
+    except OSError:
+        stale = True
+    if rescan or stale or scan is None:
         scan = start_scan(path)
     u = shutil.disk_usage(DATA)
     return {"path": path, "home": os.path.expanduser("~"), "data": DATA, "parent": os.path.dirname(path) if path != "/" else None,
-            "total": u.total, "used": u.total - u.free, "free": u.free, "left": scan["left"], "error": scan["error"],
+            "total": u.total, "used": u.total - u.free, "free": u.free, "left": scan["left"], "error": scan["error"], "at": scan["at"],
             "entries": sorted(scan["entries"], key=lambda e: -(e["size"] or 0))[:300], "count": len(scan["entries"])}
 
 
@@ -522,6 +551,7 @@ async function loadDisk(p,rescan){
     if(j.left>0&&view==='disk') dtimer=setTimeout(()=>loadDisk(dpath),800);
   }catch(e){ if(seq===dseq){ $('dstat').textContent="couldn't open this folder"; $('drows').innerHTML='' } }
 }
+const ago=t=>{const m=Math.round((Date.now()/1000-t)/60); return m<1?'just now':m<60?m+' min ago':m<1440?Math.round(m/60)+' h ago':Math.round(m/1440)+' d ago'};
 function renderDisk(){
   const d=dd, sum=d.entries.reduce((a,e)=>a+(e.size||0),0), max=Math.max(1,...d.entries.map(e=>e.size||0));
   const rest=Math.max(0,d.used-sum);
@@ -538,7 +568,7 @@ function renderDisk(){
   let acc=root[0];
   $('crumbs').innerHTML=[`<button data-p="${esc(root[0])}"${parts.length?'':' aria-current="page"'}>${root[1]}</button>`,...parts.map((x,i)=>{acc+=(acc.endsWith('/')?'':'/')+x;
     return `${i||root[0]!=='/'?'<span aria-hidden="true">/</span>':''}<button data-p="${esc(acc)}"${i==parts.length-1?' aria-current="page"':''}>${esc(x)}</button>`})].join('');
-  $('dstat').textContent=d.error?`can't open: ${d.error}`:d.left?`measuring, ${d.left} folder${d.left==1?'':'s'} left…`:'done';
+  $('dstat').textContent=d.error?`can't open: ${d.error}`:d.left?`measuring, ${d.left} folder${d.left==1?'':'s'} left…`:'measured '+ago(d.at);
   const tip='No access. Give Memwatch Full Disk Access (System Settings › Privacy & Security) to measure it.';
   $('drows').innerHTML=d.entries.map(e=>{
     const size=e.denied?`<span class="dim" title="${tip}">no access</span>`:e.size==null?sk(52):fmt(e.size)+(e.partial?`<span class="dim" title="Some folders inside couldn't be read, so it's at least this much">+</span>`:'');
@@ -607,6 +637,7 @@ if __name__ == "__main__":
         assert app_name("/Applications/Brave Browser.app/Contents/Frameworks/x/Brave Browser Helper.app/Contents/MacOS/h") == "Brave Browser"
         assert app_name("/usr/libexec/logd") == "logd"
         import tempfile
+        DIRS_CACHE = os.devnull  # don't save the test folder into the real cache
         with tempfile.TemporaryDirectory() as t:
             os.makedirs(f"{t}/big/sub"); os.makedirs(f"{t}/empty")
             open(f"{t}/big/sub/f", "wb").write(b"x" * (1 << 20)); open(f"{t}/small", "wb").write(b"x" * 10)
