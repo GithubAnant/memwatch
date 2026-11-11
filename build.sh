@@ -10,7 +10,7 @@ swiftc -O -o "$APP/Contents/MacOS/Memwatch" Memwatch.swift
 cp memwatch.py "$APP/Contents/Resources/"
 cp Info.plist "$APP/Contents/"
 
-swift make_icon.swift build/icon.png
+swift make_icon.swift build/icon.png "$APP/Contents/Resources/menubar.png"
 for s in 16 32 128 256 512; do
   sips -z $s $s build/icon.png --out "build/icon.iconset/icon_${s}x${s}.png" >/dev/null
   sips -z $((s * 2)) $((s * 2)) build/icon.png --out "build/icon.iconset/icon_${s}x${s}@2x.png" >/dev/null

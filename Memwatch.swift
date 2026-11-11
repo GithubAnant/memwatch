@@ -99,7 +99,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         if menuBarMode {
             if statusItem == nil {
                 let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-                item.button?.image = NSImage(systemSymbolName: "memorychip", accessibilityDescription: "Memwatch")
+                let img = Bundle.main.image(forResource: "menubar") ?? NSImage(systemSymbolName: "memorychip", accessibilityDescription: nil)
+                img?.size = NSSize(width: 18, height: 18)
+                img?.isTemplate = true
+                img?.accessibilityDescription = "Memwatch"
+                item.button?.image = img
                 item.button?.imagePosition = .imageLeading
                 item.button?.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
                 item.button?.target = self
