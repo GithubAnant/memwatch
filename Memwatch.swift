@@ -181,6 +181,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         switch (m.body as? [String: Any])?["action"] as? String {
         case "settings": popover.performClose(nil); openSettings()
         case "quit": NSApp.terminate(nil)
+        case "kill": kill(m.body as? [String: Any] ?? [:])
+        case "reveal":
+            if let path = (m.body as? [String: Any])?["path"] as? String {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+            }
         case "menubar":  // the in-page switch; keeps Settings' checkbox in sync
             let on = (m.body as? [String: Any])?["on"] as? Bool ?? false
             guard on != menuBarMode else { return }
@@ -191,6 +196,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
             if on { DispatchQueue.main.async { self.togglePopover() } }  // show where it went
         default: break
         }
+    }
+
+    // Quit / Force quit from the page. Each target is [pid, executable name]; the name is re-checked so a pid
+    // reused since the last sample is left alone. Quit on an app asks it nicely (it can save, and takes its
+    // helpers with it); everything else gets SIGTERM, Force quit gets SIGKILL.
+    func kill(_ b: [String: Any]) {
+        let force = b["force"] as? Bool ?? false
+        let protected: Set<String> = ["loginwindow", "WindowServer", "kernel_task", "launchd"]
+        var done = 0, denied = 0, skipped = 0
+        var targets: [(pid_t, String)] = []
+        for t in b["targets"] as? [[Any]] ?? [] {
+            guard t.count == 2, let n = t[0] as? NSNumber, let name = t[1] as? String else { continue }
+            let pid = pid_t(truncating: n)
+            var buf = [CChar](repeating: 0, count: 4096)
+            let path = proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 ? String(cString: buf) : ""
+            if pid <= 1 || pid == getpid() || pid == server?.processIdentifier || protected.contains(name)
+                || (path as NSString).lastPathComponent != name { skipped += 1; continue }
+            targets.append((pid, name))
+        }
+        let apps = targets.compactMap { NSRunningApplication(processIdentifier: $0.0) }.filter { $0.activationPolicy != .prohibited }
+        if !force && !apps.isEmpty {
+            for a in apps { a.terminate() ? (done += 1) : (denied += 1) }
+        } else {
+            for (pid, _) in targets {
+                if let a = NSRunningApplication(processIdentifier: pid), force {
+                    if a.forceTerminate() { done += 1; continue }
+                }
+                if Darwin.kill(pid, force ? SIGKILL : SIGTERM) == 0 { done += 1 }
+                else if errno == EPERM { denied += 1 } else { skipped += 1 }
+            }
+        }
+        web.evaluateJavaScript("window.killDone && killDone(\(done),\(denied),\(skipped))")
     }
 
     func updateStatusTitle() {

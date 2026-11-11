@@ -192,7 +192,7 @@ header{position:sticky;top:0;z-index:2;height:var(--tb);display:flex;justify-con
 .mb .kpis{margin:4px 0 12px;gap:12px 16px;grid-template-columns:1fr 1fr}
 .mb .kpi .v{font-size:20px}
 .mb .legend{margin-bottom:20px}
-.mb caption,.mb .tools .meta,.mb th:nth-child(2),.mb td:nth-child(2),.mb th:nth-child(4),.mb td:nth-child(4),.mb th:nth-child(6),.mb td:nth-child(6){display:none}
+.mb caption,.mb .tools .meta,.mb #ram :is(th,td):is(:nth-child(2),:nth-child(4),:nth-child(6)){display:none}
 .mb input{flex:1;width:auto;min-width:0}
 .mb th,.mb td{padding-left:8px;padding-right:8px}
 .mb tr.proc td:first-child{padding-left:50px}
@@ -254,6 +254,19 @@ tr.app:hover .chev{color:var(--fg)}
 .sk,.bar.loading{animation:pulse 1.6s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.45}}
 @media (prefers-reduced-motion:reduce){.sk,.bar.loading{animation:none}.chev svg{transition:none}}
+.act{width:36px;padding-left:0;padding-right:4px;text-align:right}
+.kb{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;border-radius:6px;background:none;color:var(--fg2);cursor:pointer;opacity:0;vertical-align:middle}
+tr:hover .kb,.kb:focus-visible,.kb[aria-expanded=true]{opacity:1}
+.kb:hover,.kb[aria-expanded=true]{color:var(--err);background:var(--bg2)}
+.kb:focus-visible{outline:2px solid var(--fg2)}
+#km{position:fixed;z-index:5;width:240px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.18)}
+#km[hidden]{display:none}
+#km p{font-size:13px;color:var(--fg2);margin:2px 0 12px}
+#km .row{display:flex;gap:6px;justify-content:flex-end}
+#km button{font:13px Geist,system-ui,sans-serif;border:1px solid var(--border);border-radius:6px;padding:4px 10px;background:var(--bg);color:var(--fg);cursor:pointer}
+#km button:hover{background:var(--bg2)}
+#km button.danger{background:var(--err);border-color:var(--err);color:#fff}
+#km button:focus-visible{outline:2px solid var(--fg2);outline-offset:1px}
 @media (max-width:640px){.share{display:none}}
 </style></head><body>
 <header><h1>Memwatch</h1><div class="right"><span class="meta" id="ts">sampling…</span>
@@ -264,15 +277,17 @@ tr.app:hover .chev{color:var(--fg)}
 <div class="legend" id="legend"></div>
 <div class="tools"><input id="q" type="search" placeholder="Filter apps" aria-label="Filter apps">
 <span class="meta" id="hint">click a row for processes</span></div>
-<div class="wrap"><table><caption>RAM by app. RAM = physical footprint (Activity Monitor calls it Memory). Compressed = part of it squeezed in RAM or swapped to disk. On disk = size of the app itself on your drive.</caption>
+<div class="wrap"><table id="ram"><caption>RAM by app. RAM = physical footprint (Activity Monitor calls it Memory). Compressed = part of it squeezed in RAM or swapped to disk. On disk = size of the app itself on your drive.</caption>
 <thead><tr><th data-k="app" title="App name. Helper processes are counted under their parent app.">App</th>
 <th class="n" data-k="n" title="Number of running processes for this app">Procs</th>
 <th class="n" data-k="mem" title="Physical footprint: RAM this app is using right now, including its compressed part. Same number as Activity Monitor's Memory column.">RAM</th>
 <th class="n" data-k="cmprs" title="Part of the RAM number that macOS has compressed in RAM or moved to swap on disk">Compressed</th>
 <th class="n" data-k="mem" id="share" title="RAM use as a share of your installed RAM">RAM %</th>
-<th class="n" data-k="disk" title="Space the app itself takes on your drive (its .app bundle). Doesn't include its documents, caches or other data.">On disk</th></tr></thead>
+<th class="n" data-k="disk" title="Space the app itself takes on your drive (its .app bundle). Doesn't include its documents, caches or other data.">On disk</th><th class="act" aria-label="Quit"></th></tr></thead>
 <tbody id="rows"></tbody></table></div>
 </main>
+<div id="km" role="dialog" aria-labelledby="kmt" hidden><strong id="kmt"></strong><p id="kmp"></p>
+<div class="row"><button data-k="cancel">Cancel</button><button data-k="force">Force quit</button><button class="danger" data-k="quit">Quit</button></div></div>
 <label class="switch" id="mbswitch" hidden><input type="checkbox" role="switch"><span class="track"></span>Menu bar</label>
 <script>
 const $=id=>document.getElementById(id), open=new Set();
@@ -297,7 +312,7 @@ const icon=a=>a.icon?`<img class="ico" src="/icon/${a.icon}.png" alt="">`:`<span
 const sk=(w,h=12)=>`<span class="sk" style="width:${w}px;height:${h}px"></span>`;
 $('kpis').innerHTML=[72,64,80,60].map(w=>`<div class="kpi"><div class="l">${sk(w)}</div><div class="v">${sk(w+56,22)}</div><div class="s">${sk(w-8)}</div></div>`).join('');
 $('legend').innerHTML=[64,72,96,92,64].map(w=>`<span>${sk(w)}</span>`).join('');
-$('rows').innerHTML=[128,104,88,136,64,112,96,72,120,80].map((w,i)=>`<tr style="opacity:${1-i*.08}"><td><span class="chev"></span><span class="sk ico"></span>${sk(w)}</td><td class="n">${sk(20)}</td><td class="n">${sk(56)}</td><td class="n">${sk(52)}</td><td class="n">${sk(36)}<span class="share">${sk(80,4)}</span></td><td class="n">${sk(48)}</td></tr>`).join('');
+$('rows').innerHTML=[128,104,88,136,64,112,96,72,120,80].map((w,i)=>`<tr style="opacity:${1-i*.08}"><td><span class="chev"></span><span class="sk ico"></span>${sk(w)}</td><td class="n">${sk(20)}</td><td class="n">${sk(56)}</td><td class="n">${sk(52)}</td><td class="n">${sk(36)}<span class="share">${sk(80,4)}</span></td><td class="n">${sk(48)}</td><td></td></tr>`).join('');
 function render(){
   if(!data) return;
   document.querySelector('main').removeAttribute('aria-busy'); $('bar').classList.remove('loading');
@@ -321,8 +336,8 @@ function render(){
   const focused=document.activeElement?.closest?.('tr.app')?.dataset.a;
   $('rows').innerHTML=rows.slice(0,200).map(a=>{
     const o=open.has(a.app), pct=a.mem/s.total*100;
-    let h=`<tr class="app" data-a="${esc(a.app)}"${a.n>1?` tabindex="0" aria-expanded="${o}"`:''}><td><span class="chev">${a.n>1?CHEV:''}</span>${icon(a)}${esc(a.app)}</td><td class="n">${a.n}</td><td class="n">${fmt(a.mem)}</td><td class="n">${fmt(a.cmprs)}</td><td class="n">${pct.toFixed(1)}%<span class="share"><b style="width:${a.mem/max*100}%"></b></span></td><td class="n">${a.disk!=null?fmt(a.disk):`<span class="dim" title="${a.icon?'Measuring…':'Not an app bundle'}">—</span>`}</td></tr>`;
-    if(o&&a.n>1) h+=a.procs.map(x=>`<tr class="proc"><td>${esc(x.name)} <span class="pid">${x.pid}</span></td><td></td><td class="n">${fmt(x.mem)}</td><td class="n">${fmt(x.cmprs)}</td><td class="n">${(x.mem/s.total*100).toFixed(1)}%</td><td></td></tr>`).join('');
+    let h=`<tr class="app" data-a="${esc(a.app)}"${a.n>1?` tabindex="0" aria-expanded="${o}"`:''}><td><span class="chev">${a.n>1?CHEV:''}</span>${icon(a)}${esc(a.app)}</td><td class="n">${a.n}</td><td class="n">${fmt(a.mem)}</td><td class="n">${fmt(a.cmprs)}</td><td class="n">${pct.toFixed(1)}%<span class="share"><b style="width:${a.mem/max*100}%"></b></span></td><td class="n">${a.disk!=null?fmt(a.disk):`<span class="dim" title="${a.icon?'Measuring…':'Not an app bundle'}">—</span>`}</td><td class="act">${kb(a.app,'a',a.procs)}</td></tr>`;
+    if(o&&a.n>1) h+=a.procs.map(x=>`<tr class="proc"><td>${esc(x.name)} <span class="pid">${x.pid}</span></td><td></td><td class="n">${fmt(x.mem)}</td><td class="n">${fmt(x.cmprs)}</td><td class="n">${(x.mem/s.total*100).toFixed(1)}%</td><td></td><td class="act">${kb(x.pid,'p',[x])}</td></tr>`).join('');
     return h}).join('');
   // rows are rebuilt every refresh; put keyboard focus back where it was
   if(focused!=null) [...$('rows').querySelectorAll('tr.app')].find(r=>r.dataset.a===focused)?.focus({preventScroll:true});
@@ -335,13 +350,42 @@ function toggle(r){
   r.setAttribute('aria-expanded',open.has(a));  // rotate the existing chevron first, then rebuild rows
   setTimeout(render,120);
 }
-$('rows').onclick=e=>{const r=e.target.closest('tr.app[aria-expanded]'); if(r) toggle(r)};
-$('rows').onkeydown=e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('tr.app[aria-expanded]')){e.preventDefault(); toggle(e.target)}};
+$('rows').onclick=e=>{const b=e.target.closest('.kb'); if(b) return askKill(b); const r=e.target.closest('tr.app[aria-expanded]'); if(r) toggle(r)};
+$('rows').onkeydown=e=>{if(e.target.closest('.kb')) return; if((e.key==='Enter'||e.key===' ')&&e.target.matches('tr.app[aria-expanded]')){e.preventDefault(); toggle(e.target)}};
+// Quit / Force quit, through the app shell (browser mode has no buttons). The menu lives outside the table
+// because rows are rebuilt every refresh.
+const KEEP=new Set(['loginwindow','WindowServer','kernel_task','launchd']);
+function kb(id,kind,procs){
+  if(!native||procs.every(x=>x.pid<=1||KEEP.has(x.name))) return '';
+  return `<button class="kb" data-id="${esc(String(id))}" data-kind="${kind}" aria-label="Quit ${esc(String(kind=='a'?id:procs[0].name))}" aria-haspopup="dialog"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>`}
+let kt=null, kbtn=null;
+function targets(){
+  if(!kt||!data) return [];
+  const ps=kt.kind=='a'?(data.apps.find(a=>a.app===kt.id)?.procs||[]):data.apps.flatMap(a=>a.procs).filter(x=>String(x.pid)===kt.id);
+  return ps.filter(x=>x.pid>1&&!KEEP.has(x.name)).map(x=>[x.pid,x.name]);
+}
+function askKill(b){
+  kt={id:b.dataset.id,kind:b.dataset.kind}; kbtn=b; b.setAttribute('aria-expanded','true');
+  const t=targets(), m=$('km'), r=b.getBoundingClientRect();
+  $('kmt').textContent=kt.kind=='a'?`Quit ${kt.id}?`:`Quit ${t[0]?.[1]||'process'} (${kt.id})?`;
+  $('kmp').textContent=kt.kind=='a'?(t.length>1?`${t.length} processes. Quit asks it to close normally; Force quit kills them all, unsaved work is lost.`:'Quit asks it to close normally. Force quit kills it right away, unsaved work is lost.'):'Quit asks it to stop. Force quit kills it right away.';
+  m.hidden=false; m.style.top=Math.min(r.bottom+6,innerHeight-m.offsetHeight-8)+'px'; m.style.left=Math.max(8,r.right-m.offsetWidth)+'px';
+  m.querySelector('[data-k=cancel]').focus();
+}
+function closeKill(){ $('km').hidden=true; document.querySelectorAll('.kb[aria-expanded]').forEach(x=>x.removeAttribute('aria-expanded')); kt=null }
+$('km').onclick=e=>{const k=e.target.dataset.k; if(!k) return; if(k!=='cancel') native.postMessage({action:'kill',force:k==='force',targets:targets()}); closeKill()};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('km').hidden) closeKill()});
+document.addEventListener('mousedown',e=>{if(!$('km').hidden&&!e.target.closest('#km,.kb')) closeKill()});
+addEventListener('scroll',()=>{if(!$('km').hidden) closeKill()},true);
+let tsHold=0;
+window.killDone=(ok,denied,skipped)=>{
+  $('ts').textContent=[ok&&`quit ${ok}`,denied&&`${denied} needs admin`,skipped&&`${skipped} skipped`].filter(Boolean).join(' · ')||'nothing to quit';
+  tsHold=Date.now()+4000; setTimeout(()=>window.refreshNow(),700)};
 document.querySelector('thead').onclick=e=>{const k=e.target.dataset.k; if(!k) return; asc=k===sortK?!asc:k==='app'; sortK=k; render()};
 $('q').oninput=render;
 async function tick(){
   try{const r=await fetch('/api'), j=await r.json(); if(!r.ok) throw j.error;
-    data=j; $('ts').textContent='updated '+new Date().toLocaleTimeString(); render()}
+    data=j; if(Date.now()>tsHold) $('ts').textContent='updated '+new Date().toLocaleTimeString(); render()}
   catch(e){$('ts').textContent=typeof e=='string'?'sample failed, retrying':'server not reachable'}
   timer=setTimeout(tick,every*1000);
 }

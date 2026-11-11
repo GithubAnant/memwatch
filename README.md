@@ -26,6 +26,10 @@ one for Slack, one for whatever Electron app you forgot was open, with the real 
   deciding what to uninstall. It's measured in the background the first time and cached,
   so big apps fill in after a few seconds.
 
+- **Quit or force quit** any app or process. Hover a row and click the ×. Quit asks
+  the app to close normally; Force quit kills it right away. System processes like
+  `loginwindow` are left alone. (This needs the app; the browser version is read-only.)
+
 Hover any column header for a short explanation of what it measures.
 
 ## Menu bar mode
