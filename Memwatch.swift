@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
     let popover = NSPopover()
     var settings: NSWindow?
     var usageBox: NSButton!
+    var menuBarBox: NSButton?
     var lastUsed: Double?
     var usageTimer: Timer?
     var server: Process?
@@ -176,6 +177,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
         switch (m.body as? [String: Any])?["action"] as? String {
         case "settings": popover.performClose(nil); openSettings()
         case "quit": NSApp.terminate(nil)
+        case "menubar":  // the in-page switch; keeps Settings' checkbox in sync
+            let on = (m.body as? [String: Any])?["on"] as? Bool ?? false
+            guard on != menuBarMode else { return }
+            defaults.set(on, forKey: Key.menuBar)
+            menuBarBox?.state = on ? .on : .off
+            usageBox?.isEnabled = on
+            applyMode()
+            if on { DispatchQueue.main.async { self.togglePopover() } }  // show where it went
         default: break
         }
     }
@@ -198,6 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
             w.isReleasedWhenClosed = false
             let menuBar = NSButton(checkboxWithTitle: "Run in the menu bar instead of the Dock", target: self, action: #selector(setMenuBar(_:)))
             menuBar.state = menuBarMode ? .on : .off
+            menuBarBox = menuBar
             usageBox = NSButton(checkboxWithTitle: "Show memory used next to the menu bar icon", target: self, action: #selector(setUsage(_:)))
             usageBox.state = defaults.bool(forKey: Key.showUsage) ? .on : .off
             let login = NSButton(checkboxWithTitle: "Open at login", target: self, action: #selector(setLogin(_:)))

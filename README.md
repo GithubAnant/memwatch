@@ -30,7 +30,7 @@ Hover any column header for a short explanation of what it measures.
 
 ## Menu bar mode
 
-Turn it on in Settings (<kbd>⌘</kbd> <kbd>,</kbd>) and Memwatch moves out of the Dock and into
+Flip the **Menu bar** switch in the bottom-left corner (or use Settings, <kbd>⌘</kbd> <kbd>,</kbd>) and Memwatch moves out of the Dock and into
 the menu bar. It shows your RAM used next to the icon, and clicking it opens a
 compact version of the window.
 

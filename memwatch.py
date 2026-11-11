@@ -174,7 +174,7 @@ PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 ::-webkit-scrollbar-thumb{background:var(--strong);border:3px solid var(--bg);border-radius:6px;min-height:40px}
 ::-webkit-scrollbar-thumb:hover{background:var(--fg2)}
 body{background:var(--bg);color:var(--fg);font:14px/1.5 Geist,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-main{max-width:1080px;margin:0 auto;padding:28px 16px 64px}
+main{max-width:1080px;margin:0 auto;padding:28px 16px 80px}
 /* Top strip. In the app it sits under the transparent native titlebar, which owns drag + double-click zoom,
    so it holds no controls. --tb/--tl come from the window's real metrics (Memwatch.swift); defaults suit a browser tab. */
 :root{--tb:52px;--tl:16px}
@@ -193,7 +193,7 @@ header{position:sticky;top:0;z-index:2;height:var(--tb);display:flex;justify-con
 .mb .kpi .v{font-size:20px}
 .mb .legend{margin-bottom:20px}
 .mb caption,.mb .tools .meta,.mb th:nth-child(2),.mb td:nth-child(2),.mb th:nth-child(4),.mb td:nth-child(4),.mb th:nth-child(6),.mb td:nth-child(6){display:none}
-.mb input{width:100%}
+.mb input{flex:1;width:auto;min-width:0}
 .mb th,.mb td{padding-left:8px;padding-right:8px}
 .mb tr.proc td:first-child{padding-left:50px}
 h1{font-size:14px;font-weight:600}
@@ -209,6 +209,17 @@ h1{font-size:14px;font-weight:600}
 .legend{display:flex;flex-wrap:wrap;gap:4px 20px;margin:10px 0 40px;font-size:13px;color:var(--fg2);font-variant-numeric:tabular-nums}
 .legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px}
 .tools{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
+/* menu bar switch: only shown inside the app (needs the native bridge) */
+.switch{position:fixed;left:16px;bottom:16px;z-index:3;padding:6px 12px 6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:999px;display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--fg2);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}
+.switch[hidden]{display:none}
+.switch:hover{color:var(--fg)}
+.switch input{position:absolute;opacity:0;width:1px;height:1px}
+.track{position:relative;width:30px;height:18px;border-radius:9px;background:var(--strong);transition:background .15s}
+.track::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .15s}
+.switch input:checked+.track{background:var(--seg1)}
+.switch input:checked+.track::after{transform:translateX(12px)}
+.switch input:focus-visible+.track{outline:2px solid var(--fg2);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){.track,.track::after{transition:none}}
 input{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;width:240px;max-width:100%}
 input:focus{outline:2px solid var(--fg2);outline-offset:1px}
 .wrap{overflow-x:auto}
@@ -261,7 +272,9 @@ tr.app:hover .chev{color:var(--fg)}
 <th class="n" data-k="mem" id="share" title="RAM use as a share of your installed RAM">RAM %</th>
 <th class="n" data-k="disk" title="Space the app itself takes on your drive (its .app bundle). Doesn't include its documents, caches or other data.">On disk</th></tr></thead>
 <tbody id="rows"></tbody></table></div>
-</main><script>
+</main>
+<label class="switch" id="mbswitch" hidden><input type="checkbox" role="switch"><span class="track"></span>Menu bar</label>
+<script>
 const $=id=>document.getElementById(id), open=new Set();
 let data=null, sortK='mem', asc=false;
 const fmt=b=>b>=1<<30?(b/(1<<30)).toFixed(2)+' GB':b>=1<<20?(b/(1<<20)).toFixed(0)+' MB':(b/1024).toFixed(0)+' KB';
@@ -274,6 +287,11 @@ if(P.has('menubar')) R.classList.add('mb');
 const every=Math.max(1,+P.get('r')||3), native=window.webkit?.messageHandlers?.mem;
 $('hint').textContent=`refresh ${every}s · click a row for processes`;
 document.querySelector('.native').onclick=e=>{const a=e.target.dataset.act; if(a) native?.postMessage({action:a})};
+if(native){
+  const sw=$('mbswitch'), box=sw.querySelector('input');
+  sw.hidden=false; box.checked=P.has('menubar');
+  box.onchange=()=>native.postMessage({action:'menubar',on:box.checked});
+}
 const CHEV='<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const icon=a=>a.icon?`<img class="ico" src="/icon/${a.icon}.png" alt="">`:`<span class="ico ph" aria-hidden="true">${esc(([...a.app][0]||'?').toUpperCase())}</span>`;
 const sk=(w,h=12)=>`<span class="sk" style="width:${w}px;height:${h}px"></span>`;
